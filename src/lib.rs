@@ -178,6 +178,22 @@ mod impl_details {
     pub fn assert_size(x: usize) -> SizeType {
         x
     }
+
+    #[inline(always)]
+    pub fn pack_capacity_and_auto(cap: SizeType, auto: bool) -> SizeType {
+        debug_assert!(!auto);
+        cap
+    }
+
+    #[inline(always)]
+    pub fn unpack_capacity(cap: SizeType) -> usize {
+        cap
+    }
+
+    #[inline(always)]
+    pub fn is_auto(_: SizeType) -> bool {
+        false
+    }
 }
 
 #[cfg(feature = "gecko-ffi")]
@@ -193,7 +209,7 @@ mod impl_details {
     // struct {
     //   uint32_t mLength;
     //   uint32_t mCapacity: 31;
-    //   uint32_t mIsAutoBuffer: 1;
+    //   uint32_t mIsAutoArray : 1;
     // }
     // ```
     //
@@ -213,14 +229,13 @@ mod impl_details {
 
     pub const MAX_CAP: usize = i32::max_value() as usize;
 
+    // See kAutoTArrayHeaderOffset
+    pub const AUTO_ARRAY_HEADER_OFFSET: usize = 8;
+
     // Little endian: the auto bit is the high bit, and the capacity is
     // verbatim. So we just need to mask off the high bit. Note that
     // this masking is unnecessary when packing, because assert_size
     // guards against the high bit being set.
-    #[cfg(target_endian = "little")]
-    pub fn pack_capacity(cap: SizeType) -> SizeType {
-        cap
-    }
     #[cfg(target_endian = "little")]
     pub fn unpack_capacity(cap: SizeType) -> usize {
         (cap as usize) & !(1 << 31)
@@ -237,10 +252,6 @@ mod impl_details {
     // Big endian: the auto bit is the low bit, and the capacity is
     // shifted up one bit. Masking out the auto bit is unnecessary,
     // as rust shifts always shift in 0's for unsigned integers.
-    #[cfg(target_endian = "big")]
-    pub fn pack_capacity(cap: SizeType) -> SizeType {
-        cap << 1
-    }
     #[cfg(target_endian = "big")]
     pub fn unpack_capacity(cap: SizeType) -> usize {
         (cap >> 1) as usize
@@ -323,41 +334,23 @@ impl Header {
     fn set_len(&mut self, len: usize) {
         self._len = assert_size(len);
     }
-}
 
-#[cfg(feature = "gecko-ffi")]
-impl Header {
     fn cap(&self) -> usize {
         unpack_capacity(self._cap)
     }
 
-    fn set_cap(&mut self, cap: usize) {
+    fn set_cap_and_auto(&mut self, cap: usize, is_auto: bool) {
         // debug check that our packing is working
-        debug_assert_eq!(unpack_capacity(pack_capacity(cap as SizeType)), cap);
-        // FIXME: this assert is busted because it reads uninit memory
-        // debug_assert!(!self.uses_stack_allocated_buffer());
-
-        // NOTE: this always stores a cleared auto bit, because set_cap
-        // is only invoked by Rust, and Rust doesn't create auto arrays.
-        self._cap = pack_capacity(assert_size(cap));
+        debug_assert_eq!(
+            unpack_capacity(pack_capacity_and_auto(cap as SizeType, is_auto)),
+            cap
+        );
+        self._cap = pack_capacity_and_auto(assert_size(cap), is_auto);
     }
 
-    fn uses_stack_allocated_buffer(&self) -> bool {
+    #[inline]
+    fn is_auto(&self) -> bool {
         is_auto(self._cap)
-    }
-}
-
-#[cfg(not(feature = "gecko-ffi"))]
-impl Header {
-    #[inline]
-    #[allow(clippy::unnecessary_cast)]
-    fn cap(&self) -> usize {
-        self._cap as usize
-    }
-
-    #[inline]
-    fn set_cap(&mut self, cap: usize) {
-        self._cap = assert_size(cap);
     }
 }
 
@@ -445,7 +438,7 @@ fn layout<T>(cap: usize) -> Layout {
 /// # Panics
 ///
 /// Panics if the required size overflows `isize::MAX`.
-fn header_with_capacity<T>(cap: usize) -> NonNull<Header> {
+fn header_with_capacity<T>(cap: usize, is_auto: bool) -> NonNull<Header> {
     debug_assert!(cap > 0);
     unsafe {
         let layout = layout::<T>(cap);
@@ -463,7 +456,7 @@ fn header_with_capacity<T>(cap: usize) -> NonNull<Header> {
                     // "Infinite" capacity for zero-sized types:
                     MAX_CAP as SizeType
                 } else {
-                    assert_size(cap)
+                    pack_capacity_and_auto(assert_size(cap), is_auto)
                 },
             },
         );
@@ -600,7 +593,7 @@ impl<T> ThinVec<T> {
             }
         } else {
             ThinVec {
-                ptr: header_with_capacity::<T>(cap),
+                ptr: header_with_capacity::<T>(cap, false),
                 boo: PhantomData,
             }
         }
@@ -1208,13 +1201,32 @@ impl<T> ThinVec<T> {
     pub fn shrink_to_fit(&mut self) {
         let old_cap = self.capacity();
         let new_cap = self.len();
-        if new_cap < old_cap {
-            if new_cap == 0 {
-                *self = ThinVec::new();
-            } else {
-                unsafe {
-                    self.reallocate(new_cap);
+        if new_cap >= old_cap {
+            return;
+        }
+        #[cfg(feature = "gecko-ffi")]
+        unsafe {
+            let stack_buf = self.auto_array_header_mut();
+            if !stack_buf.is_null() && (*stack_buf).cap() >= new_cap {
+                // Try to switch to our auto-buffer.
+                if stack_buf == self.ptr.as_ptr() {
+                    return;
                 }
+                stack_buf
+                    .add(1)
+                    .cast::<T>()
+                    .copy_from_nonoverlapping(self.data_raw(), new_cap);
+                dealloc(self.ptr() as *mut u8, layout::<T>(old_cap));
+                self.ptr = NonNull::new_unchecked(stack_buf);
+                self.ptr.as_mut().set_len(new_cap);
+                return;
+            }
+        }
+        if new_cap == 0 {
+            *self = ThinVec::new();
+        } else {
+            unsafe {
+                self.reallocate(new_cap);
             }
         }
     }
@@ -1690,10 +1702,10 @@ impl<T> ThinVec<T> {
             if ptr.is_null() {
                 handle_alloc_error(layout::<T>(new_cap))
             }
-            (*ptr).set_cap(new_cap);
+            (*ptr).set_cap_and_auto(new_cap, (*ptr).is_auto());
             self.ptr = NonNull::new_unchecked(ptr);
         } else {
-            let new_header = header_with_capacity::<T>(new_cap);
+            let new_header = header_with_capacity::<T>(new_cap, self.is_auto_array());
 
             // If we get here and have a non-zero len, then we must be handling
             // a gecko auto array, and we have items in a stack buffer. We shouldn't
@@ -1720,33 +1732,46 @@ impl<T> ThinVec<T> {
         }
     }
 
-    #[cfg(feature = "gecko-ffi")]
     #[inline]
     #[allow(unused_unsafe)]
     fn is_singleton(&self) -> bool {
-        // NOTE: the tests will complain that this "unsafe" isn't needed, but it *IS*!
-        // In production this refers to an *extern static* which *is* unsafe to reference.
-        // In tests this refers to a local static because we don't have Firefox's codebase
-        // providing the symbol!
         unsafe { self.ptr.as_ptr() as *const Header == &EMPTY_HEADER }
-    }
-
-    #[cfg(not(feature = "gecko-ffi"))]
-    #[inline]
-    fn is_singleton(&self) -> bool {
-        self.ptr.as_ptr() as *const Header == &EMPTY_HEADER
     }
 
     #[cfg(feature = "gecko-ffi")]
     #[inline]
-    fn has_allocation(&self) -> bool {
-        unsafe { !self.is_singleton() && !self.ptr.as_ref().uses_stack_allocated_buffer() }
+    fn auto_array_header_mut(&mut self) -> *mut Header {
+        if !self.is_auto_array() {
+            return ptr::null_mut();
+        }
+        unsafe { (self as *mut Self).byte_add(AUTO_ARRAY_HEADER_OFFSET) as *mut Header }
     }
 
-    #[cfg(not(feature = "gecko-ffi"))]
+    #[cfg(feature = "gecko-ffi")]
+    #[inline]
+    fn auto_array_header(&self) -> *const Header {
+        if !self.is_auto_array() {
+            return ptr::null_mut();
+        }
+        unsafe { (self as *const Self).byte_add(AUTO_ARRAY_HEADER_OFFSET) as *const Header }
+    }
+
+    #[inline]
+    fn is_auto_array(&self) -> bool {
+        unsafe { self.ptr.as_ref().is_auto() }
+    }
+
+    #[inline]
+    fn uses_stack_allocated_buffer(&self) -> bool {
+        #[cfg(feature = "gecko-ffi")]
+        return self.auto_array_header() == self.ptr.as_ptr();
+        #[cfg(not(feature = "gecko-ffi"))]
+        return false;
+    }
+
     #[inline]
     fn has_allocation(&self) -> bool {
-        !self.is_singleton()
+        !self.is_singleton() && !self.uses_stack_allocated_buffer()
     }
 }
 
@@ -1850,8 +1875,7 @@ impl<T> Drop for ThinVec<T> {
             unsafe {
                 ptr::drop_in_place(&mut this[..]);
 
-                #[cfg(feature = "gecko-ffi")]
-                if this.ptr.as_ref().uses_stack_allocated_buffer() {
+                if this.uses_stack_allocated_buffer() {
                     return;
                 }
 
@@ -2764,7 +2788,7 @@ impl<I: Iterator> Drop for Splice<'_, I> {
 }
 
 #[cfg(feature = "gecko-ffi")]
-#[repr(C)]
+#[repr(C, align(8))]
 struct AutoBuffer<T, const N: usize> {
     header: Header,
     buffer: mem::MaybeUninit<[T; N]>,
@@ -2790,6 +2814,7 @@ impl<T, const N: usize> AutoThinVec<T, N> {
             std::mem::align_of::<T>() <= 8,
             "Can't handle alignments greater than 8"
         );
+        assert_eq!(std::mem::offset_of!(Self, buffer), AUTO_ARRAY_HEADER_OFFSET);
         Self {
             inner: ThinVec::new(),
             buffer: AutoBuffer {
@@ -2807,6 +2832,7 @@ impl<T, const N: usize> AutoThinVec<T, N> {
     /// need to make sure not to move the ThinVec manually via something like
     /// `std::mem::take(&mut auto_vec)`.
     pub fn as_mut_ptr(self: std::pin::Pin<&mut Self>) -> *mut ThinVec<T> {
+        debug_assert!(self.is_auto_array());
         unsafe { &mut self.get_unchecked_mut().inner }
     }
 
@@ -2817,31 +2843,14 @@ impl<T, const N: usize> AutoThinVec<T, N> {
         this.buffer.header.set_len(0);
         // TODO(emilio): Use NonNull::from_mut when msrv allows.
         this.inner.ptr = NonNull::new_unchecked(&mut this.buffer.header);
+        debug_assert!(this.inner.is_auto_array());
+        debug_assert!(this.inner.uses_stack_allocated_buffer());
     }
 
     pub fn shrink_to_fit(self: std::pin::Pin<&mut Self>) {
-        if self.inner.is_singleton() {
-            return unsafe { self.shrink_to_fit_known_singleton() };
-        }
         let this = unsafe { self.get_unchecked_mut() };
-        if !this.inner.has_allocation() {
-            return;
-        }
-        let len = this.len();
-        if len > N {
-            return this.inner.shrink_to_fit();
-        }
-        let old_header = this.inner.ptr();
-        let old_cap = this.inner.capacity();
-        unsafe {
-            (this.buffer.buffer.as_mut_ptr() as *mut T)
-                .copy_from_nonoverlapping(this.inner.data_raw(), len);
-        }
-        this.buffer.header.set_len(len);
-        unsafe {
-            this.inner.ptr = NonNull::new_unchecked(&mut this.buffer.header);
-            dealloc(old_header as *mut u8, layout::<T>(old_cap));
-        }
+        this.inner.shrink_to_fit();
+        debug_assert!(this.inner.is_auto_array());
     }
 }
 
@@ -4563,11 +4572,13 @@ mod std_tests {
         }
     */
 
-    #[cfg(all(feature = "gecko-ffi"))]
+    #[cfg(feature = "gecko-ffi")]
     #[test]
     fn auto_t_array_basic() {
         crate::auto_thin_vec!(let t: [u8; 10]);
         assert_eq!(t.capacity(), 10);
+        assert!(t.is_auto_array());
+        assert!(t.uses_stack_allocated_buffer());
         assert!(!t.has_allocation());
         {
             let inner = unsafe { &mut *t.as_mut().as_mut_ptr() };
@@ -4576,6 +4587,8 @@ mod std_tests {
             }
         }
 
+        assert!(t.is_auto_array());
+        assert!(!t.uses_stack_allocated_buffer());
         assert_eq!(t.len(), 30);
         assert!(t.has_allocation());
         assert_eq!(t[5], 5);
@@ -4592,6 +4605,8 @@ mod std_tests {
         assert!(t.has_allocation());
         t.as_mut().shrink_to_fit();
         assert!(!t.has_allocation());
+        assert!(t.is_auto_array());
+        assert!(t.uses_stack_allocated_buffer());
         assert_eq!(t.capacity(), 10);
     }
 
