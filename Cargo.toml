@@ -14,6 +14,7 @@ rust-version = "1.53"
 unstable = []
 default = ["std"]
 std = []
+const_new = []
 
 # Gecko specific features. These features cause thin-vec to have the same layout
 # and behaviour as nsTArray, allowing it to be used in C++ FFI. Requires

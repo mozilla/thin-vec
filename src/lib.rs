@@ -22,6 +22,14 @@
 //!   but it could be done if someone cared enough to implement it.
 //!
 //!
+//! # Optional Features
+//!
+//! ## `const_new`
+//!
+//! **This feature requires Rust 1.83.**
+//!
+//! This feature makes `ThinVec::new()` a `const fn`.
+//!
 //!
 //! # Gecko FFI
 //!
@@ -516,8 +524,22 @@ impl<T> ThinVec<T> {
     /// Creates a new empty ThinVec.
     ///
     /// This will not allocate.
+    #[cfg(not(feature = "const_new"))]
     pub fn new() -> ThinVec<T> {
         ThinVec::with_capacity(0)
+    }
+
+    /// Creates a new empty ThinVec.
+    ///
+    /// This will not allocate.
+    #[cfg(feature = "const_new")]
+    pub const fn new() -> ThinVec<T> {
+        unsafe {
+            ThinVec {
+                ptr: NonNull::new_unchecked(&EMPTY_HEADER as *const Header as *mut Header),
+                boo: PhantomData,
+            }
+        }
     }
 
     /// Constructs a new, empty `ThinVec<T>` with at least the specified capacity.
