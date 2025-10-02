@@ -2867,7 +2867,7 @@ impl<T, const N: usize> Deref for AutoThinVec<T, N> {
 /// Create a ThinVec<$ty> named `$name`, with capacity for `$cap` inline elements.
 ///
 /// TODO(emilio): This would be a lot more convenient to use with super let, see
-/// https://github.com/rust-lang/rust/issues/139076
+/// <https://github.com/rust-lang/rust/issues/139076>
 #[cfg(feature = "gecko-ffi")]
 #[macro_export]
 macro_rules! auto_thin_vec {
