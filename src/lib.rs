@@ -847,7 +847,25 @@ impl<T> ThinVec<T> {
             self.reserve(1);
         }
         unsafe {
+            // SAFETY: reserve() ensures sufficient capacity.
+            self.push_reserved(val);
+        }
+    }
+
+    /// Appends an element to the back like `push`,
+    /// but assumes that sufficient capacity has already been reserved, i.e.
+    /// `len() < capacity()`.
+    ///
+    /// # Safety
+    ///
+    /// - Capacity must be reserved in advance such that `capacity() > len()`.
+    pub unsafe fn push_reserved(&mut self, val: T) {
+        let old_len = self.len();
+
+        unsafe {
             ptr::write(self.data_raw().add(old_len), val);
+
+            // SAFETY: capacity > len >= 0, so capacity != 0, so this is not a singleton.
             self.set_len_non_singleton(old_len + 1);
         }
     }
@@ -1949,11 +1967,21 @@ impl<T> Extend<T> for ThinVec<T> {
     where
         I: IntoIterator<Item = T>,
     {
-        let iter = iter.into_iter();
+        let mut iter = iter.into_iter();
         let hint = iter.size_hint().0;
         if hint > 0 {
             self.reserve(hint);
         }
+        for x in iter.by_ref().take(hint) {
+            // SAFETY: `reserve(hint)` ensures the next `hint` calls of `push_reserved`
+            // have sufficient capacity.
+            unsafe {
+                self.push_reserved(x);
+            }
+        }
+
+        // if the hint underestimated the iterator length,
+        // push the remaining items with capacity check each time.
         for x in iter {
             self.push(x);
         }
