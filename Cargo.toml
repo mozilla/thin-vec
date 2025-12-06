@@ -25,7 +25,21 @@ serde = { version = "1.0", optional = true }
 malloc_size_of = { version = "0.1", default-features = false, optional = true }
 
 [dev-dependencies]
+criterion = "0.5.1"
 serde_test = "1.0"
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(no_global_oom_handling)'] }
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(no_global_oom_handling)',
+] }
+
+[[bench]]
+name = "bench"
+harness = false
+
+[profile.bench]
+opt-level = 3
+debug = false
+lto = true
+codegen-units = 1
+rpath = false
