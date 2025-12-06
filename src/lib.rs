@@ -2994,21 +2994,21 @@ where
 
     fn next(&mut self) -> Option<T> {
         unsafe {
+            let v = self.vec.data_raw();
             while self.idx < self.end {
                 let i = self.idx;
-                let v = slice::from_raw_parts_mut(self.vec.as_mut_ptr(), self.old_len);
-                let drained = (self.pred)(&mut v[i]);
+                let drained = (self.pred)(&mut *v.add(i));
                 // Update the index *after* the predicate is called. If the index
                 // is updated prior and the predicate panics, the element at this
                 // index would be leaked.
                 self.idx += 1;
                 if drained {
                     self.del += 1;
-                    return Some(ptr::read(&v[i]));
+                    return Some(ptr::read(v.add(i)));
                 } else if self.del > 0 {
                     let del = self.del;
-                    let src: *const T = &v[i];
-                    let dst: *mut T = &mut v[i - del];
+                    let src: *const T = v.add(i);
+                    let dst: *mut T = v.add(i - del);
                     ptr::copy_nonoverlapping(src, dst, 1);
                 }
             }
@@ -3031,7 +3031,7 @@ impl<A, F> Drop for ExtractIf<'_, A, F> {
                 // elements and tell the vec that they still exist. The backshift
                 // is required to prevent a double-drop of the last successfully
                 // drained item prior to a panic in the predicate.
-                let ptr = self.vec.as_mut_ptr();
+                let ptr = self.vec.data_raw();
                 let src = ptr.add(self.idx);
                 let dst = src.sub(self.del);
                 let tail_len = self.old_len - self.idx;
