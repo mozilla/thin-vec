@@ -1,3 +1,10 @@
+# Version 0.2.15 (2025-02-19)
+* Support AutoTArrays created from rust in Gecko FFI mode.
+* Add extract_if.
+* Add const new() support behind feature flag.
+* Fix `thin_vec` macro not being hygienic when recursing
+* Improve extend() performance.
+
 # Version 0.2.14 (2025-02-19)
 * Add "malloc_size_of" feature for heap size measurement support
 
