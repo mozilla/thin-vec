@@ -860,7 +860,7 @@ impl<T> ThinVec<T> {
     ///
     /// - Capacity must be reserved in advance such that `capacity() > len()`.
     #[inline]
-    pub unsafe fn push_unchecked(&mut self, val: T) {
+    unsafe fn push_unchecked(&mut self, val: T) {
         let old_len = self.len();
         debug_assert!(old_len < self.capacity());
         unsafe {
