@@ -848,7 +848,7 @@ impl<T> ThinVec<T> {
         }
         unsafe {
             // SAFETY: reserve() ensures sufficient capacity.
-            self.push_reserved(val);
+            self.push_unchecked(val);
         }
     }
 
@@ -859,9 +859,10 @@ impl<T> ThinVec<T> {
     /// # Safety
     ///
     /// - Capacity must be reserved in advance such that `capacity() > len()`.
-    pub unsafe fn push_reserved(&mut self, val: T) {
+    #[inline]
+    pub unsafe fn push_unchecked(&mut self, val: T) {
         let old_len = self.len();
-
+        debug_assert!(old_len < self.capacity());
         unsafe {
             ptr::write(self.data_raw().add(old_len), val);
 
@@ -1971,12 +1972,12 @@ impl<T> Extend<T> for ThinVec<T> {
         let hint = iter.size_hint().0;
         if hint > 0 {
             self.reserve(hint);
-        }
-        for x in iter.by_ref().take(hint) {
-            // SAFETY: `reserve(hint)` ensures the next `hint` calls of `push_reserved`
-            // have sufficient capacity.
-            unsafe {
-                self.push_reserved(x);
+            for x in iter.by_ref().take(hint) {
+                // SAFETY: `reserve(hint)` ensures the next `hint` calls of `push_unchecked`
+                // have sufficient capacity.
+                unsafe {
+                    self.push_unchecked(x);
+                }
             }
         }
 
