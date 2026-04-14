@@ -47,15 +47,18 @@ jobs:
     - name: Run tests (unstable)
       run: cargo +nightly test --features=unstable --verbose
 
-  msrv:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: 1.53
-          override: true
-      - run: cargo check
+  # FIXME(emilio): msrv job times out waiting for crates.io with the 1.53
+  # toolchain.
+  #
+  # msrv:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: 1.53
+  #         override: true
+  #     - run: cargo check
 
   fmt:
     runs-on: ubuntu-latest
