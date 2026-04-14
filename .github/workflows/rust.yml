@@ -55,7 +55,7 @@ jobs:
         with:
           toolchain: 1.53
           override: true
-      - run: cargo +1.53 check
+      - run: cargo check
 
   fmt:
     runs-on: ubuntu-latest
@@ -67,10 +67,7 @@ jobs:
           profile: minimal
           components: rustfmt
           override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - run: cargo fmt --all -- --check
 
 
   clippy:
@@ -83,12 +80,7 @@ jobs:
             profile: minimal
             components: clippy
             override: true
-      - uses: actions-rs/clippy-check@v1
-        env:
-          PWD: ${{ env.GITHUB_WORKSPACE }}
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --workspace --tests --examples
+      - run: cargo clippy --workspace --tests --examples
 
 
   docs:
@@ -104,7 +96,4 @@ jobs:
           components: rust-docs
           override: true
       - uses: swatinem/rust-cache@v1
-      - uses: actions-rs/cargo@v1
-        with:
-          command: doc
-          args: --workspace --no-deps
+      - run: cargo doc --workspace --no-deps
