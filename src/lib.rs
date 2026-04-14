@@ -1333,20 +1333,25 @@ impl<T> ThinVec<T> {
         F: FnMut(&mut T) -> bool,
     {
         let len = self.len();
-        let mut del = 0;
-        {
-            let v = &mut self[..];
 
-            for i in 0..len {
-                if !f(&mut v[i]) {
-                    del += 1;
-                } else if del > 0 {
-                    v.swap(i - del, i);
+        if len == 0 {
+            // return early for optimization
+            return;
+        }
+
+        let mut write_idx = 0;
+
+        for i in 0..len {
+            if f(&mut self[i]) {
+                if write_idx < i {
+                    self.swap(write_idx, i);
                 }
+                write_idx += 1;
             }
         }
-        if del > 0 {
-            self.truncate(len - del);
+
+        if write_idx < len {
+            self.truncate(write_idx);
         }
     }
 
