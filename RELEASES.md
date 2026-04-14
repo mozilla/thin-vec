@@ -1,3 +1,8 @@
+# Version 0.2.16 (2026-04-14)
+* Fix reserve() on auto arrays in gecko-ffi mode.
+* Fix two double-drop issues with ThinVec::clear() and ThinVec::into_iter()
+  when the Drop implementation of the item panics.
+
 # Version 0.2.15 (2026-04-08)
 * Support AutoTArrays created from Rust in Gecko FFI mode.
 * Add extract_if.
