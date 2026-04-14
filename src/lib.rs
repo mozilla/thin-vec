@@ -1081,8 +1081,18 @@ impl<T> ThinVec<T> {
     /// ```
     pub fn clear(&mut self) {
         unsafe {
-            ptr::drop_in_place(&mut self[..]);
-            self.set_len(0); // could be the singleton
+            // Decrement len even in the case of a panic.
+            struct DropGuard<'a, T>(&'a mut ThinVec<T>);
+            impl<T> Drop for DropGuard<'_, T> {
+                fn drop(&mut self) {
+                    unsafe {
+                        // Could be the singleton.
+                        self.0.set_len(0);
+                    }
+                }
+            }
+            let guard = DropGuard(self);
+            ptr::drop_in_place(&mut guard.0[..]);
         }
     }
 
@@ -2543,10 +2553,18 @@ impl<T> Drop for IntoIter<T> {
         #[cold]
         #[inline(never)]
         fn drop_non_singleton<T>(this: &mut IntoIter<T>) {
+            // Leak on panic.
+            struct DropGuard<'a, T>(&'a mut IntoIter<T>);
+            impl<T> Drop for DropGuard<'_, T> {
+                fn drop(&mut self) {
+                    unsafe {
+                        self.0.vec.set_len_non_singleton(0);
+                    }
+                }
+            }
             unsafe {
-                let mut vec = mem::replace(&mut this.vec, ThinVec::new());
-                ptr::drop_in_place(&mut vec[this.start..]);
-                vec.set_len_non_singleton(0)
+                let guard = DropGuard(this);
+                ptr::drop_in_place(&mut guard.0.vec[guard.0.start..]);
             }
         }
 
@@ -4775,5 +4793,37 @@ mod std_tests {
     fn test_capacity_overflow_cap_really_isnt_isize() {
         let vec: ThinVec<u8> = ThinVec::with_capacity(isize::MAX as usize);
         assert!(vec.capacity() > 0);
+    }
+
+    struct PanicBomb(&'static str);
+
+    impl Drop for PanicBomb {
+        fn drop(&mut self) {
+            if self.0 == "panic" {
+                panic!("panic!");
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "panic!")]
+    fn test_panic_into_iter() {
+        let mut v = ThinVec::new();
+        v.push(PanicBomb("normal1"));
+        v.push(PanicBomb("panic"));
+        v.push(PanicBomb("normal2"));
+
+        let mut iter = v.into_iter();
+        iter.next();
+    }
+
+    #[test]
+    #[should_panic(expected = "panic!")]
+    fn test_panic_clear() {
+        let mut v = ThinVec::new();
+        v.push(PanicBomb("normal1"));
+        v.push(PanicBomb("panic"));
+        v.push(PanicBomb("normal2"));
+        v.clear();
     }
 }
