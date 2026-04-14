@@ -1746,7 +1746,7 @@ impl<T> ThinVec<T> {
             (*ptr).set_cap_and_auto(new_cap, (*ptr).is_auto());
             self.ptr = NonNull::new_unchecked(ptr);
         } else {
-            let new_header = header_with_capacity::<T>(new_cap, self.is_auto_array());
+            let mut new_header = header_with_capacity::<T>(new_cap, self.is_auto_array());
 
             // If we get here and have a non-zero len, then we must be handling
             // a gecko auto array, and we have items in a stack buffer. We shouldn't
@@ -1767,6 +1767,7 @@ impl<T> ThinVec<T> {
                     .cast::<T>()
                     .copy_from_nonoverlapping(self.data_raw(), len);
                 self.set_len_non_singleton(0);
+                new_header.as_mut().set_len(len);
             }
 
             self.ptr = new_header;
@@ -4632,6 +4633,7 @@ mod std_tests {
         assert!(t.is_auto_array());
         assert!(t.uses_stack_allocated_buffer());
         assert!(!t.has_allocation());
+        assert_eq!(t.len(), 0);
         {
             let inner = unsafe { &mut *t.as_mut().as_mut_ptr() };
             for i in 0..30 {
