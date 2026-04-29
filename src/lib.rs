@@ -2870,7 +2870,7 @@ struct AutoBuffer<T, const N: usize> {
 pub struct AutoThinVec<T, const N: usize> {
     inner: ThinVec<T>,
     buffer: AutoBuffer<T, N>,
-    _pinned: std::marker::PhantomPinned,
+    _pinned: core::marker::PhantomPinned,
 }
 
 #[cfg(feature = "gecko-ffi")]
@@ -2881,10 +2881,13 @@ impl<T, const N: usize> AutoThinVec<T, N> {
     pub fn new_unpinned() -> Self {
         // This condition is hard-coded in nsTArray.h
         assert!(
-            std::mem::align_of::<T>() <= 8,
+            core::mem::align_of::<T>() <= 8,
             "Can't handle alignments greater than 8"
         );
-        assert_eq!(std::mem::offset_of!(Self, buffer), AUTO_ARRAY_HEADER_OFFSET);
+        assert_eq!(
+            core::mem::offset_of!(Self, buffer),
+            AUTO_ARRAY_HEADER_OFFSET
+        );
         Self {
             inner: ThinVec::new(),
             buffer: AutoBuffer {
@@ -2894,20 +2897,20 @@ impl<T, const N: usize> AutoThinVec<T, N> {
                 },
                 buffer: mem::MaybeUninit::uninit(),
             },
-            _pinned: std::marker::PhantomPinned,
+            _pinned: core::marker::PhantomPinned,
         }
     }
 
     /// Returns a raw pointer to the inner ThinVec. Note that if you dereference it from rust, you
     /// need to make sure not to move the ThinVec manually via something like
     /// `std::mem::take(&mut auto_vec)`.
-    pub fn as_mut_ptr(self: std::pin::Pin<&mut Self>) -> *mut ThinVec<T> {
+    pub fn as_mut_ptr(self: core::pin::Pin<&mut Self>) -> *mut ThinVec<T> {
         debug_assert!(self.is_auto_array());
         unsafe { &mut self.get_unchecked_mut().inner }
     }
 
     #[inline]
-    pub unsafe fn shrink_to_fit_known_singleton(self: std::pin::Pin<&mut Self>) {
+    pub unsafe fn shrink_to_fit_known_singleton(self: core::pin::Pin<&mut Self>) {
         debug_assert!(self.is_singleton());
         let this = unsafe { self.get_unchecked_mut() };
         this.buffer.header.set_len(0);
@@ -2917,7 +2920,7 @@ impl<T, const N: usize> AutoThinVec<T, N> {
         debug_assert!(this.inner.uses_stack_allocated_buffer());
     }
 
-    pub fn shrink_to_fit(self: std::pin::Pin<&mut Self>) {
+    pub fn shrink_to_fit(self: core::pin::Pin<&mut Self>) {
         let this = unsafe { self.get_unchecked_mut() };
         this.inner.shrink_to_fit();
         debug_assert!(this.inner.is_auto_array());
