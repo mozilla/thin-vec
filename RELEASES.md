@@ -1,4 +1,4 @@
-# Version 0.2.17 (2026-04-29)
+# Versions 0.2.17 and 0.2.18 (2026-04-29)
 * Fix compiling some feature combinations in no_std mode
 
 # Version 0.2.16 (2026-04-14)
