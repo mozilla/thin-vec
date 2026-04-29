@@ -1,3 +1,6 @@
+# Version 0.2.17 (2026-04-29)
+* Fix compiling some feature combinations in no_std mode
+
 # Version 0.2.16 (2026-04-14)
 * Fix reserve() on auto arrays in gecko-ffi mode.
 * Fix two double-drop issues with ThinVec::clear() and ThinVec::into_iter()
