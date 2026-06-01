@@ -2132,16 +2132,12 @@ impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for ThinVec<T> {
 #[cfg(feature = "malloc_size_of")]
 impl<T> MallocShallowSizeOf for ThinVec<T> {
     fn shallow_size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-        if self.capacity() == 0 {
-            // If it's the singleton we might not be a heap pointer.
+        if self.capacity() == 0 || self.uses_stack_allocated_buffer() {
+            // We're not a heap pointer.
             return 0;
         }
 
-        assert_eq!(
-            core::mem::size_of::<Self>(),
-            core::mem::size_of::<*const ()>()
-        );
-        unsafe { ops.malloc_size_of(*(self as *const Self as *const *const ())) }
+        unsafe { ops.malloc_size_of(self.ptr() as _) }
     }
 }
 
@@ -4828,5 +4824,24 @@ mod std_tests {
         v.push(PanicBomb("panic"));
         v.push(PanicBomb("normal2"));
         v.clear();
+    }
+
+    #[cfg(all(feature = "gecko-ffi", feature = "malloc_size_of"))]
+    #[test]
+    fn malloc_size_of_auto_array() {
+        use malloc_size_of::{MallocShallowSizeOf, MallocSizeOfOps};
+        use std::ffi::c_void;
+
+        extern "C" {
+            fn malloc_usable_size(ptr: *const c_void) -> usize;
+        }
+
+        unsafe extern "C" fn malloc_size_of(ptr: *const c_void) -> usize {
+            unsafe { malloc_usable_size(ptr) }
+        }
+
+        crate::auto_thin_vec!(let t: [u8; 4]);
+        let mut ops = MallocSizeOfOps::new(malloc_size_of, None, None);
+        let _ = MallocShallowSizeOf::shallow_size_of(&**t, &mut ops);
     }
 }
