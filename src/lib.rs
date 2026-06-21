@@ -436,16 +436,18 @@ fn alloc_align<T>() -> usize {
 ///
 /// # Panics
 ///
-/// Panics if the required size overflows `isize::MAX`.
+/// Panics if the required size overflows `isize::MAX` when rounded up to the required alignment.
 fn layout<T>(cap: usize) -> Layout {
-    unsafe { Layout::from_size_align_unchecked(alloc_size::<T>(cap), alloc_align::<T>()) }
+    Layout::from_size_align(alloc_size::<T>(cap), alloc_align::<T>())
+        .ok()
+        .unwrap_cap_overflow()
 }
 
 /// Allocates a header (and array) for a `ThinVec<T>` with the given capacity.
 ///
 /// # Panics
 ///
-/// Panics if the required size overflows `isize::MAX`.
+/// Panics if the required size overflows `isize::MAX` when rounded up to the required alignment.
 fn header_with_capacity<T>(cap: usize, is_auto: bool) -> NonNull<Header> {
     debug_assert!(cap > 0);
     unsafe {
@@ -3102,6 +3104,12 @@ mod tests {
     #[test]
     fn test_drop_empty() {
         ThinVec::<u8>::new();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_cap_plus_header_rounded_up_overflows() {
+        let _ = ThinVec::<u8>::with_capacity(isize::MAX as usize - size_of::<super::Header>());
     }
 
     #[test]
