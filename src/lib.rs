@@ -476,7 +476,7 @@ fn header_with_capacity<T>(cap: usize, is_auto: bool) -> NonNull<Header> {
 /// Safety: len must be != 0
 unsafe fn len_to_ptr_unchecked<T: Sized>(len: usize) -> NonNull<T> {
     use std::num::NonZeroUsize;
-    // NonZero::without_provenance polyfill
+    // NonNull::without_provenance polyfill
     unsafe { mem::transmute(NonZeroUsize::new_unchecked(len)) }
 }
 
