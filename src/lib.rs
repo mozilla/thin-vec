@@ -529,6 +529,7 @@ macro_rules! thin_vec {
 
 impl<T> ThinVec<T> {
     /// Return true if we can use ZST optimizations
+    #[inline(always)]
     const fn is_zst() -> bool {
         size_of::<T>() == 0 && !cfg!(feature = "gecko-ffi")
     }
