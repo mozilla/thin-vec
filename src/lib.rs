@@ -542,6 +542,9 @@ impl<T> ThinVec<T> {
     ///
     /// This will not allocate.
     pub const fn new() -> ThinVec<T> {
+        // See the comment in with_capacity().
+        let _ = padding::<T>();
+
         if Self::is_zst() {
             unsafe {
                 ThinVec {
@@ -550,8 +553,6 @@ impl<T> ThinVec<T> {
                 }
             }
         } else {
-            // See the comment in with_capacity().
-            let _ = padding::<T>();
             unsafe {
                 ThinVec {
                     ptr: NonNull::new_unchecked(&EMPTY_HEADER as *const Header as *mut Header),
@@ -625,6 +626,8 @@ impl<T> ThinVec<T> {
         // double panic. We duplicate the assertion here so that it is
         // testable,
 
+        let _ = padding::<T>();
+
         if Self::is_zst() {
             unsafe {
                 return ThinVec {
@@ -634,7 +637,6 @@ impl<T> ThinVec<T> {
             }
         }
 
-        let _ = padding::<T>();
         if cap == 0 {
             return Self::new();
         }
@@ -861,10 +863,7 @@ impl<T> ThinVec<T> {
     /// Normally, here, one would use [`clear`] instead to correctly drop
     /// the contents and thus not leak memory.
     pub unsafe fn set_len(&mut self, len: usize) {
-        if Self::is_zst() {
-            // since self.cap() returns usize::MAX - 1 it's the caller reponsability to ensure len is < usize::MAX
-            unsafe { self.set_len_zst(len) };
-        } else if self.is_singleton() {
+        if self.is_singleton() {
             // A prerequisite of `Vec::set_len` is that `new_len` must be
             // less than or equal to capacity(). The same applies here.
             debug_assert!(len == 0, "invalid set_len({}) on empty ThinVec", len);
@@ -900,6 +899,7 @@ impl<T> ThinVec<T> {
     /// This is unsafe when the header is EMPTY_HEADER.
     #[inline(always)]
     unsafe fn set_len_non_singleton(&mut self, len: usize) {
+        debug_assert!(!self.is_singleton());
         if Self::is_zst() {
             unsafe {
                 self.set_len_zst(len);
@@ -926,9 +926,7 @@ impl<T> ThinVec<T> {
     /// ```
     pub fn push(&mut self, val: T) {
         let old_len = self.len();
-        if Self::is_zst() {
-            assert!(old_len < MAX_CAP);
-        } else if old_len == self.capacity() {
+        if old_len == self.capacity() {
             self.reserve(1);
         }
         unsafe {
@@ -949,12 +947,8 @@ impl<T> ThinVec<T> {
         let old_len = self.len();
         debug_assert!(old_len < self.capacity());
         unsafe {
-            if Self::is_zst() {
-                mem::forget(val);
-            } else {
-                ptr::write(self.data_raw().add(old_len), val);
-                // SAFETY: capacity > len >= 0, so capacity != 0, so this is not a singleton.
-            }
+            ptr::write(self.data_raw().add(old_len), val);
+            // SAFETY: capacity > len >= 0, so capacity != 0, so this is not a singleton.
             self.set_len_non_singleton(old_len + 1);
         }
     }
@@ -979,11 +973,7 @@ impl<T> ThinVec<T> {
 
         unsafe {
             self.set_len_non_singleton(old_len - 1);
-            if Self::is_zst() {
-                Some(mem::zeroed())
-            } else {
-                Some(ptr::read(self.data_raw().add(old_len - 1)))
-            }
+            Some(ptr::read(self.data_raw().add(old_len - 1)))
         }
     }
 
@@ -1009,14 +999,6 @@ impl<T> ThinVec<T> {
         let old_len = self.len();
 
         assert!(idx <= old_len, "Index out of bounds");
-        if Self::is_zst() {
-            assert!(old_len < MAX_CAP);
-            mem::forget(elem);
-            unsafe {
-                self.set_len_zst(old_len + 1);
-            }
-            return;
-        }
         if old_len == self.capacity() {
             self.reserve(1);
         }
@@ -1058,14 +1040,10 @@ impl<T> ThinVec<T> {
 
         unsafe {
             self.set_len_non_singleton(old_len - 1);
-            if Self::is_zst() {
-                mem::zeroed()
-            } else {
-                let ptr = self.data_raw();
-                let val = ptr::read(self.data_raw().add(idx));
-                ptr::copy(ptr.add(idx + 1), ptr.add(idx), old_len - idx - 1);
-                val
-            }
+            let ptr = self.data_raw();
+            let val = ptr::read(self.data_raw().add(idx));
+            ptr::copy(ptr.add(idx + 1), ptr.add(idx), old_len - idx - 1);
+            val
         }
     }
 
@@ -1101,15 +1079,10 @@ impl<T> ThinVec<T> {
         assert!(idx < old_len, "Index out of bounds");
 
         unsafe {
-            if Self::is_zst() {
-                self.set_len_zst(old_len - 1);
-                mem::zeroed()
-            } else {
-                let ptr = self.data_raw();
-                ptr::swap(ptr.add(idx), ptr.add(old_len - 1));
-                self.set_header_len(old_len - 1);
-                ptr::read(ptr.add(old_len - 1))
-            }
+            let ptr = self.data_raw();
+            ptr::swap(ptr.add(idx), ptr.add(old_len - 1));
+            self.set_len_non_singleton(old_len - 1);
+            ptr::read(ptr.add(old_len - 1))
         }
     }
 
@@ -1169,11 +1142,7 @@ impl<T> ThinVec<T> {
                 // doesn't re-drop the just-failed value.
                 let new_len = self.len() - 1;
                 self.set_len_non_singleton(new_len);
-                let ptr = if Self::is_zst() {
-                    NonNull::dangling().as_ptr()
-                } else {
-                    self.data_raw().add(new_len)
-                };
+                let ptr = self.data_raw().add(new_len);
                 ptr::drop_in_place(ptr);
             }
         }
@@ -1340,6 +1309,7 @@ impl<T> ThinVec<T> {
         let new_cap = self.len().checked_add(additional).unwrap_cap_overflow();
         let old_cap = self.capacity();
         if new_cap > old_cap {
+            // only way to get here is if new_cap == usize::MAX, which we can't handle.
             if Self::is_zst() {
                 capacity_overflow()
             }
