@@ -477,6 +477,7 @@ fn header_with_capacity<T>(cap: usize, is_auto: bool) -> NonNull<Header> {
 ///
 /// len must be != 0, this uses the `NonNull` to store a length, so the length must be stored offset by one.
 /// This function expect the len to be already shifted
+#[inline(always)]
 const unsafe fn len_to_ptr_unchecked<T: Sized>(len: usize) -> NonNull<T> {
     use core::num::NonZeroUsize;
     // NonNull::without_provenance polyfill
