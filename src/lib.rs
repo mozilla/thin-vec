@@ -409,6 +409,10 @@ const fn padding<T>() -> usize {
     let header_size = mem::size_of::<Header>();
     if cfg!(feature = "gecko-ffi") {
         assert!(
+            mem::size_of::<T>() != 0,
+            "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+        );
+        assert!(
             header_size >= alloc_align,
             "nsTArray does not handle alignment above the header size correctly",
         );
@@ -576,12 +580,13 @@ impl<T> ThinVec<T> {
     /// assert_eq!(vec.len(), 11);
     /// assert!(vec.capacity() >= 11);
     ///
+    /// # #[cfg(not(feature = "gecko-ffi"))] {
     /// // A vector of a zero-sized type will always over-allocate, since no
     /// // space is needed to store the actual elements.
+    /// // Note this is only true **without** the gecko-ffi feature!
     /// let vec_units = ThinVec::<()>::with_capacity(10);
-    ///
-    /// // Only true **without** the gecko-ffi feature!
-    /// // assert_eq!(vec_units.capacity(), usize::MAX);
+    /// assert_eq!(vec_units.capacity(), usize::MAX);
+    /// # }
     /// ```
     pub fn with_capacity(cap: usize) -> Self {
         // `padding` contains ~static assertions against types that are
@@ -3115,7 +3120,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(feature = "gecko-ffi", should_panic)]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "nsTArray does not handle alignment above the header size correctly"
+    )]
     fn test_overaligned_type_is_rejected_for_gecko_ffi_mode() {
         #[repr(align(16))]
         #[allow(unused)]
@@ -3173,6 +3181,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+    )]
     fn test_drain_items_zero_sized() {
         let mut vec = thin_vec![(), (), ()];
         let mut vec2 = thin_vec![];
@@ -3203,13 +3215,24 @@ mod tests {
         let mut v: ThinVec<_> = (1..6).map(|x| x.to_string()).collect();
         for _ in v.drain(1..4).rev() {}
         assert_eq!(v, &[1.to_string(), 5.to_string()]);
+    }
 
+    #[test]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+    )]
+    fn test_drain_range_zst() {
         let mut v: ThinVec<_> = thin_vec![(); 5];
         for _ in v.drain(1..4).rev() {}
         assert_eq!(v, &[(), ()]);
     }
 
     #[test]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+    )]
     fn test_drain_max_vec_size() {
         let mut v = ThinVec::<()>::with_capacity(MAX_CAP);
         unsafe {
@@ -3567,16 +3590,6 @@ mod std_tests {
         v.extend(w.clone()); // specializes to `append`
         assert!(v.iter().eq(w.iter().chain(w.iter())));
 
-        // Zero sized types
-        #[derive(PartialEq, Debug)]
-        struct Foo;
-
-        let mut a = ThinVec::new();
-        let b = thin_vec![Foo, Foo];
-
-        a.extend(b);
-        assert_eq!(a, &[Foo, Foo]);
-
         // Double drop
         let mut count_x = 0;
         {
@@ -3588,6 +3601,22 @@ mod std_tests {
         }
 
         assert_eq!(count_x, 1);
+    }
+
+    #[test]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+    )]
+    fn test_extend_zst() {
+        #[derive(PartialEq, Debug)]
+        struct Foo;
+
+        let mut a = ThinVec::new();
+        let b = thin_vec![Foo, Foo];
+
+        a.extend(b);
+        assert_eq!(a, &[Foo, Foo]);
     }
 
     /* TODO: implement extend for Iter<&Copy>
@@ -3779,6 +3808,10 @@ mod std_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+    )]
     fn zero_sized_values() {
         let mut v = ThinVec::new();
         assert_eq!(v.len(), 0);
@@ -3956,6 +3989,10 @@ mod std_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+    )]
     fn test_move_items_zero_sized() {
         let vec = thin_vec![(), (), ()];
         let mut vec2 = thin_vec![];
@@ -3988,6 +4025,10 @@ mod std_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+    )]
     fn test_drain_items_zero_sized() {
         let mut vec = thin_vec![(), (), ()];
         let mut vec2 = thin_vec![];
@@ -4018,7 +4059,14 @@ mod std_tests {
         let mut v: ThinVec<_> = (1..6).map(|x| x.to_string()).collect();
         for _ in v.drain(1..4).rev() {}
         assert_eq!(v, &[1.to_string(), 5.to_string()]);
+    }
 
+    #[test]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+    )]
+    fn test_drain_range_zst() {
         let mut v: ThinVec<_> = thin_vec![(); 5];
         for _ in v.drain(1..4).rev() {}
         assert_eq!(v, &[(), ()]);
@@ -4111,6 +4159,10 @@ mod std_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+    )]
     fn test_splice_items_zero_sized() {
         let mut vec = thin_vec![(), (), ()];
         let vec2 = thin_vec![];
