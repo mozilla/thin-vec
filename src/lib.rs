@@ -664,8 +664,7 @@ impl<T> ThinVec<T> {
 
     fn data_raw(&self) -> *mut T {
         if Self::is_zst() {
-            // Polyfill for ptr::dangling_mut(), stable from 1.84
-            return NonNull::dangling().as_ptr();
+            return ptr::dangling_mut();
         }
 
         // `padding` contains ~static assertions against types that are
