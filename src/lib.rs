@@ -24,13 +24,6 @@
 //!
 //! # Optional Features
 //!
-//! ## `const_new`
-//!
-//! **This feature requires Rust 1.83.**
-//!
-//! This feature makes `ThinVec::new()` a `const fn`.
-//!
-//!
 //! # Gecko FFI
 //!
 //! If you enable the gecko-ffi feature, `ThinVec` will verbatim bridge with the nsTArray type in
@@ -411,26 +404,24 @@ fn alloc_size<T>(cap: usize) -> usize {
 }
 
 /// Gets the padding necessary for the array of a `ThinVec<T>`
-fn padding<T>() -> usize {
+const fn padding<T>() -> usize {
     let alloc_align = alloc_align::<T>();
     let header_size = mem::size_of::<Header>();
-
-    if alloc_align > header_size {
-        if cfg!(feature = "gecko-ffi") {
-            panic!(
-                "nsTArray does not handle alignment above > {} correctly",
-                header_size
-            );
-        }
-        alloc_align - header_size
-    } else {
-        0
+    if cfg!(feature = "gecko-ffi") {
+        assert!(
+            header_size >= alloc_align,
+            "nsTArray does not handle alignment above the header size correctly",
+        );
     }
+    alloc_align.saturating_sub(header_size)
 }
 
 /// Gets the align necessary to allocate a `ThinVec<T>`
-fn alloc_align<T>() -> usize {
-    max(mem::align_of::<T>(), mem::align_of::<Header>())
+const fn alloc_align<T>() -> usize {
+    if mem::align_of::<T>() > mem::align_of::<Header>() {
+        return mem::align_of::<T>();
+    }
+    mem::align_of::<Header>()
 }
 
 /// Gets the layout necessary to allocate a `ThinVec<T>`
@@ -527,16 +518,9 @@ impl<T> ThinVec<T> {
     /// Creates a new empty ThinVec.
     ///
     /// This will not allocate.
-    #[cfg(not(feature = "const_new"))]
-    pub fn new() -> ThinVec<T> {
-        ThinVec::with_capacity(0)
-    }
-
-    /// Creates a new empty ThinVec.
-    ///
-    /// This will not allocate.
-    #[cfg(feature = "const_new")]
     pub const fn new() -> ThinVec<T> {
+        // See the comment in with_capacity().
+        let _ = padding::<T>();
         unsafe {
             ThinVec {
                 ptr: NonNull::new_unchecked(&EMPTY_HEADER as *const Header as *mut Header),
@@ -599,7 +583,7 @@ impl<T> ThinVec<T> {
     /// // Only true **without** the gecko-ffi feature!
     /// // assert_eq!(vec_units.capacity(), usize::MAX);
     /// ```
-    pub fn with_capacity(cap: usize) -> ThinVec<T> {
+    pub fn with_capacity(cap: usize) -> Self {
         // `padding` contains ~static assertions against types that are
         // incompatible with the current feature flags. We also call it to
         // invoke these assertions when getting a pointer to the `ThinVec`
@@ -608,19 +592,12 @@ impl<T> ThinVec<T> {
         // double panic. We duplicate the assertion here so that it is
         // testable,
         let _ = padding::<T>();
-
         if cap == 0 {
-            unsafe {
-                ThinVec {
-                    ptr: NonNull::new_unchecked(&EMPTY_HEADER as *const Header as *mut Header),
-                    boo: PhantomData,
-                }
-            }
-        } else {
-            ThinVec {
-                ptr: header_with_capacity::<T>(cap, false),
-                boo: PhantomData,
-            }
+            return Self::new();
+        }
+        ThinVec {
+            ptr: header_with_capacity::<T>(cap, false),
+            boo: PhantomData,
         }
     }
 
