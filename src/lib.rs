@@ -655,7 +655,7 @@ impl<T> ThinVec<T> {
 
     // This is unsafe when the header is EMPTY_HEADER.
     unsafe fn header_mut(&mut self) -> &mut Header {
-        &mut *self.ptr()
+        unsafe { &mut *self.ptr() }
     }
 
     /// Returns the number of elements in the vector, also referred to
@@ -741,7 +741,7 @@ impl<T> ThinVec<T> {
     /// # // don't use this as a starting point for a real library.
     /// # pub struct StreamWrapper { strm: *mut std::ffi::c_void }
     /// # const Z_OK: i32 = 0;
-    /// # extern "C" {
+    /// # unsafe extern "C" {
     /// #     fn deflateGetDictionary(
     /// #         strm: *mut std::ffi::c_void,
     /// #         dictionary: *mut u8,
@@ -797,13 +797,14 @@ impl<T> ThinVec<T> {
             // less than or equal to capacity(). The same applies here.
             debug_assert!(len == 0, "invalid set_len({}) on empty ThinVec", len);
         } else {
-            self.header_mut().set_len(len)
+            unsafe { self.set_len_non_singleton(len) }
         }
     }
 
     // For internal use only, when setting the length and it's known to be the non-singleton.
+    #[inline]
     unsafe fn set_len_non_singleton(&mut self, len: usize) {
-        self.header_mut().set_len(len)
+        unsafe { self.header_mut().set_len(len) }
     }
 
     /// Appends an element to the back of a collection.
@@ -1126,11 +1127,7 @@ impl<T> ThinVec<T> {
         // Ensure the new capacity is at least double, to guarantee exponential growth.
         let double_cap = if old_cap == 0 {
             // skip to 4 because tiny ThinVecs are dumb; but not if that would cause overflow
-            if mem::size_of::<T>() > (!0) / 8 {
-                1
-            } else {
-                4
-            }
+            if mem::size_of::<T>() > (!0) / 8 { 1 } else { 4 }
         } else {
             old_cap.saturating_mul(2)
         };
@@ -1724,17 +1721,18 @@ impl<T> ThinVec<T> {
         debug_assert!(new_cap > 0);
         if self.has_allocation() {
             let old_cap = self.capacity();
-            let ptr = realloc(
-                self.ptr() as *mut u8,
-                layout::<T>(old_cap),
-                alloc_size::<T>(new_cap),
-            ) as *mut Header;
-
-            if ptr.is_null() {
-                handle_alloc_error(layout::<T>(new_cap))
+            unsafe {
+                let ptr = realloc(
+                    self.ptr() as *mut u8,
+                    layout::<T>(old_cap),
+                    alloc_size::<T>(new_cap),
+                ) as *mut Header;
+                if ptr.is_null() {
+                    handle_alloc_error(layout::<T>(new_cap))
+                }
+                (*ptr).set_cap_and_auto(new_cap, (*ptr).is_auto());
+                self.ptr = NonNull::new_unchecked(ptr);
             }
-            (*ptr).set_cap_and_auto(new_cap, (*ptr).is_auto());
-            self.ptr = NonNull::new_unchecked(ptr);
         } else {
             let mut new_header = header_with_capacity::<T>(new_cap, self.is_auto_array());
 
@@ -1751,13 +1749,15 @@ impl<T> ThinVec<T> {
             // by leaving behind a valid empty instance.
             let len = self.len();
             if cfg!(feature = "gecko-ffi") && len > 0 {
-                new_header
-                    .as_ptr()
-                    .add(1)
-                    .cast::<T>()
-                    .copy_from_nonoverlapping(self.data_raw(), len);
-                self.set_len_non_singleton(0);
-                new_header.as_mut().set_len(len);
+                unsafe {
+                    new_header
+                        .as_ptr()
+                        .add(1)
+                        .cast::<T>()
+                        .copy_from_nonoverlapping(self.data_raw(), len);
+                    self.set_len_non_singleton(0);
+                    new_header.as_mut().set_len(len);
+                }
             }
 
             self.ptr = new_header;
@@ -2087,8 +2087,8 @@ impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for ThinVec<T> {
     where
         D: serde::Deserializer<'de>,
     {
-        use serde::de::{SeqAccess, Visitor};
         use serde::Deserialize;
+        use serde::de::{SeqAccess, Visitor};
 
         struct ThinVecVisitor<T>(PhantomData<T>);
 
@@ -2902,7 +2902,7 @@ impl<T, const N: usize> AutoThinVec<T, N> {
         let this = unsafe { self.get_unchecked_mut() };
         this.buffer.header.set_len(0);
         // TODO(emilio): Use NonNull::from_mut when msrv allows.
-        this.inner.ptr = NonNull::new_unchecked(&mut this.buffer.header);
+        this.inner.ptr = unsafe { NonNull::new_unchecked(&mut this.buffer.header) };
         debug_assert!(this.inner.is_auto_array());
         debug_assert!(this.inner.uses_stack_allocated_buffer());
     }
@@ -2953,11 +2953,12 @@ impl<T> Drain<'_, T> {
         };
 
         for place in range_slice {
-            if let Some(new_item) = replace_with.next() {
-                unsafe { ptr::write(place, new_item) };
-                vec.set_len(vec.len() + 1);
-            } else {
+            let Some(new_item) = replace_with.next() else {
                 return false;
+            };
+            unsafe {
+                ptr::write(place, new_item);
+                vec.set_len(vec.len() + 1);
             }
         }
         true
@@ -3079,7 +3080,7 @@ impl std::io::Write for ThinVec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ThinVec, MAX_CAP};
+    use super::{MAX_CAP, ThinVec};
     use crate::alloc::{string::ToString, vec};
 
     #[test]
@@ -4713,7 +4714,7 @@ mod std_tests {
     }
 
     #[cfg(feature = "serde")]
-    use serde_test::{assert_tokens, Token};
+    use serde_test::{Token, assert_tokens};
 
     #[test]
     #[cfg(feature = "serde")]
