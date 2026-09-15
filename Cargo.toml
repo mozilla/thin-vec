@@ -5,8 +5,6 @@ authors = ["Aria Beingessner <a.beingessner@gmail.com>"]
 edition = "2024"
 rust-version = "1.85"
 description = "A Vec that takes up less space on the stack."
-readme = "README.md"
-homepage = "https://github.com/mozilla/thin-vec"
 repository = "https://github.com/mozilla/thin-vec"
 license = "MIT OR Apache-2.0"
 

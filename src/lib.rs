@@ -229,7 +229,7 @@ mod impl_details {
 
     pub type SizeType = u32;
 
-    pub const MAX_CAP: usize = i32::max_value() as usize;
+    pub const MAX_CAP: usize = i32::MAX as usize;
 
     // See kAutoTArrayHeaderOffset
     pub const AUTO_ARRAY_HEADER_OFFSET: usize = 8;
@@ -365,7 +365,7 @@ impl Header {
 static EMPTY_HEADER: Header = Header { _len: 0, _cap: 0 };
 
 #[cfg(all(feature = "gecko-ffi", not(test), not(miri)))]
-extern "C" {
+unsafe extern "C" {
     #[link_name = "sEmptyTArrayHeader"]
     static EMPTY_HEADER: Header;
 }
