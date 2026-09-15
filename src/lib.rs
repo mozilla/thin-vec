@@ -862,7 +862,7 @@ impl<T> ThinVec<T> {
     /// the contents and thus not leak memory.
     pub unsafe fn set_len(&mut self, len: usize) {
         if Self::is_zst() {
-            // since self.cap() return usize::MAX - 1 it's the caller reponsability to ensure len is < usize::MAX
+            // since self.cap() returns usize::MAX - 1 it's the caller reponsability to ensure len is < usize::MAX
             unsafe { self.set_len_zst(len) };
         } else if self.is_singleton() {
             // A prerequisite of `Vec::set_len` is that `new_len` must be
