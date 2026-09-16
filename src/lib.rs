@@ -14,7 +14,7 @@
 //! * `ThinVec::new()` doesn't allocate (it points to a statically allocated singleton)
 //! * reallocation can be done in place
 //! * `size_of::<ThinVec<T>>()` == `size_of::<Option<ThinVec<T>>>()`
-//! * Does'nt allocate for Zero Sized Types (e.g. `ThinVec<()>`), but only without the "gecko-ffi" feature.
+//! * Doesn't allocate for Zero Sized Types (e.g. `ThinVec<()>`), but only without the "gecko-ffi" feature.
 //!
 //! Properties of `Vec` that aren't preserved:
 //! * `ThinVec<T>` can't ever be zero-cost roundtripped to a `Box<[T]>`, `String`, or `*mut T`
@@ -574,7 +574,7 @@ impl<T> ThinVec<T> {
     /// If it is important to know the exact allocated capacity of a `ThinVec`,
     /// always use the [`capacity`] method after construction.
     ///
-    /// **NOTE**: like `Vec`, `ThinVec` does'nt allocate for ZSTs and store the length inline,
+    /// **NOTE**: like `Vec`, `ThinVec` doesn't allocate for ZSTs and stores the length inline,
     /// but creating a `ThinVec` of ZSTs is not allowed if the "gecko-ffi" feature is enabled.
     ///
     /// [Capacity and reallocation]: #capacity-and-reallocation
