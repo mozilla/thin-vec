@@ -718,12 +718,10 @@ impl<T> ThinVec<T> {
     /// the vector (in elements), and it's capacity (also in elements).
     ///
     /// After calling this function, the caller is responsible for the
-    /// memory previously managed by the `ThinVec`. It is highly recommended that one does
-    /// this by converting the raw pointer and length back
-    /// into a `ThinVec` with the [`from_raw_parts`] function,
-    /// since the given pointer is offsetted from the actual allocation pointer.
+    /// memory previously managed by the `ThinVec`. one does this by converting the raw pointer and length back
+    /// into a `ThinVec` with the [`from_parts`] function, since the given pointer is offsetted from the actual allocation pointer.
     ///
-    /// [`from_raw_parts`]: ThinVec::from_raw_parts
+    /// [`from_parts`]: ThinVec::from_parts
     #[must_use = "losing the pointer will leak memory"]
     pub fn into_parts(self) -> (NonNull<T>, usize, usize) {
         let data_ptr = unsafe { NonNull::new_unchecked(self.data_raw()) };
