@@ -740,13 +740,16 @@ impl<T> ThinVec<T> {
     /// This is highly unsafe, due to the number of invariants that aren't
     /// checked:
     ///
-    /// * If `T` is not a zero-sized type and the capacity is nonzero, `ptr` must have
-    ///   been acquired via [`ThinVec::into_parts`]
+    /// * The raw pointer must have been previously returned by a call to
+    ///   [`ThinVec<U>::into_parts`], it is undefined behavior if not.
+    /// * `U` must have the same layout as `T`. This is trivially true if `U` is `T`.
+    /// * Note that if `U` is not `T` but has the same size
+    ///   and alignment, this is basically like transmuting references of
+    ///   different types. See [`mem::transmute`] for more information
+    ///   on what restrictions apply in this case.
     /// * `length` needs to be less than or equal to `capacity`.
     /// * The first `length` values must be properly initialized values of type `T`.
-    /// * `capacity` needs to be the capacity that the pointer was acquired with.
-    /// * If `T` is not a zero-sized type and the capacity is nonzero,
-    ///   `T` must have the same layout as the `T` when `ptr` was acquired
+    /// * `capacity` needs to be the exact same capacity that the pointer was acquired with.
     ///
     /// The ownership of `ptr` is effectively transferred to the
     /// `ThinVec<T>` which may then deallocate, reallocate or change the
@@ -754,7 +757,8 @@ impl<T> ThinVec<T> {
     /// that nothing else uses the pointer after calling this
     /// function.
     ///
-    /// [`ThinVec::into_parts`]: ThinVec::into_parts
+    /// [`ThinVec<U>::into_parts`]: ThinVec::into_parts
+    /// [`mem::transmute`]: core::mem::transmute
     pub unsafe fn from_parts(ptr: NonNull<T>, len: usize, capacity: usize) -> Self {
         // `padding` contains ~static assertions against types that are
         // incompatible with the current feature flags. We also call it to
