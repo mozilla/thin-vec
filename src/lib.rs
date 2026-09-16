@@ -701,13 +701,85 @@ impl<T> ThinVec<T> {
 
         unsafe {
             if !empty_header_is_aligned && self.header().cap() == 0 {
-                NonNull::dangling().as_ptr()
+                ptr::dangling_mut()
             } else {
                 // This could technically result in overflow, but padding
                 // would have to be absurdly large for this to occur.
                 let header_size = mem::size_of::<Header>();
                 let ptr = self.ptr.as_ptr() as *mut u8;
                 ptr.add(header_size + padding) as *mut T
+            }
+        }
+    }
+
+    /// Decomposes a `ThinVec<T>` into its raw components: `(pointer, length, capacity)`.
+    ///
+    /// Returns the raw pointer to the underlying data, the length of
+    /// the vector (in elements), and it's capacity (also in elements).
+    ///
+    /// After calling this function, the caller is responsible for the
+    /// memory previously managed by the `ThinVec`. It is highly recommended that one does
+    /// this by converting the raw pointer and length back
+    /// into a `ThinVec` with the [`from_raw_parts`] function,
+    /// since the given pointer is offsetted from the actual allocation pointer.
+    ///
+    /// [`from_raw_parts`]: ThinVec::from_raw_parts
+    #[must_use = "losing the pointer will leak memory"]
+    pub fn into_parts(self) -> (NonNull<T>, usize, usize) {
+        let data_ptr = unsafe { NonNull::new_unchecked(self.data_raw()) };
+        let len = self.len();
+        let cap = self.capacity();
+        mem::forget(self);
+        (data_ptr, len, cap)
+    }
+
+    /// Creates a `ThinVec<T>` directly from a pointer, a length, and a capacity.
+    ///
+    /// # Safety
+    ///
+    /// This is highly unsafe, due to the number of invariants that aren't
+    /// checked:
+    ///
+    /// * If `T` is not a zero-sized type and the capacity is nonzero, `ptr` must have
+    ///   been acquired via [`ThinVec::into_parts`]
+    /// * `length` needs to be less than or equal to `capacity`.
+    /// * The first `length` values must be properly initialized values of type `T`.
+    /// * `capacity` needs to be the capacity that the pointer was acquired with.
+    /// * If `T` is not a zero-sized type and the capacity is nonzero,
+    ///   `T` must have the same layout as the `T` when `ptr` was acquired
+    ///
+    /// The ownership of `ptr` is effectively transferred to the
+    /// `ThinVec<T>` which may then deallocate, reallocate or change the
+    /// contents of memory pointed to by the pointer at will. Ensure
+    /// that nothing else uses the pointer after calling this
+    /// function.
+    ///
+    /// [`ThinVec::into_parts`]: ThinVec::into_parts
+    pub unsafe fn from_parts(ptr: NonNull<T>, len: usize, capacity: usize) -> Self {
+        // `padding` contains ~static assertions against types that are
+        // incompatible with the current feature flags. We also call it to
+        // invoke these assertions when creating a `ThinVec`, even if we don't need the result.
+        let padding = padding::<T>();
+
+        if Self::is_zst() {
+            return unsafe {
+                ThinVec {
+                    ptr: len_to_ptr_unchecked(len + 1),
+                    boo: PhantomData,
+                }
+            };
+        }
+
+        unsafe {
+            if capacity == 0 {
+                Self::new()
+            } else {
+                let header_size = mem::size_of::<Header>();
+                let ptr = ptr.byte_sub(header_size + padding);
+                ThinVec {
+                    ptr: ptr.cast(),
+                    boo: PhantomData,
+                }
             }
         }
     }
