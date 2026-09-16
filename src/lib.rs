@@ -480,6 +480,7 @@ fn header_with_capacity<T>(cap: usize, is_auto: bool) -> NonNull<Header> {
 #[inline(always)]
 const unsafe fn len_to_ptr_unchecked<T: Sized>(len: usize) -> NonNull<T> {
     use core::num::NonZeroUsize;
+    debug_assert!(len != 0);
     // NonNull::without_provenance polyfill
     unsafe { mem::transmute(NonZeroUsize::new_unchecked(len)) }
 }
@@ -622,10 +623,9 @@ impl<T> ThinVec<T> {
         // incompatible with the current feature flags. We also call it to
         // invoke these assertions when getting a pointer to the `ThinVec`
         // contents, but since we also get a pointer to the contents in the
-        // `Drop` impl, trippng an assertion along that code path causes a
+        // `Drop` impl, tripping an assertion along that code path causes a
         // double panic. We duplicate the assertion here so that it is
         // testable,
-
         let _ = padding::<T>();
 
         if Self::is_zst() {
@@ -1884,8 +1884,6 @@ impl<T> ThinVec<T> {
     #[inline]
     #[allow(unused_unsafe)]
     fn is_singleton(&self) -> bool {
-        // could technicaly remove this branch
-        // but there is a 1/2^64 chance of the number of ZST being equal to &EMPTY_HEADER
         if Self::is_zst() {
             false
         } else {
@@ -2038,7 +2036,7 @@ fn drop_non_singleton<T>(this: &mut ThinVec<T>) {
 /// # Safety
 ///
 /// This function drop and deallocates the inner values of the `ThinVec`,
-/// invariants are therefore brokens and the value must be considered dropped and should not be accessed again.
+/// invariants are therefore broken and the value must be considered dropped and should not be accessed again.
 #[inline]
 unsafe fn drop_thin_vec<T>(this: &mut ThinVec<T>) {
     if ThinVec::<T>::is_zst() {
@@ -2261,7 +2259,7 @@ impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for ThinVec<T> {
 #[cfg(feature = "malloc_size_of")]
 impl<T> MallocShallowSizeOf for ThinVec<T> {
     fn shallow_size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-        if self.capacity() == 0 || self.uses_stack_allocated_buffer() || Self::is_zst() {
+        if !self.has_allocation() {
             // We're not a heap pointer.
             return 0;
         }
