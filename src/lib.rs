@@ -744,8 +744,7 @@ impl<T> ThinVec<T> {
     ///   [`ThinVec<U>::into_parts`], it is undefined behavior if not.
     /// * `U` must have the same layout as `T`. This is trivially true if `U` is `T`.
     /// * Note that if `U` is not `T` but has the same size
-    ///   and alignment, this is basically like transmuting references of
-    ///   different types. See [`mem::transmute`] for more information
+    ///   and alignment, this is basically like transmuting different types. See [`mem::transmute`] for more information
     ///   on what restrictions apply in this case.
     /// * `length` needs to be less than or equal to `capacity`.
     /// * The first `length` values must be properly initialized values of type `T`.
