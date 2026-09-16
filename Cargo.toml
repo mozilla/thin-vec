@@ -1,6 +1,6 @@
 [package]
 name = "thin-vec"
-version = "0.2.19"
+version = "0.2.20"
 authors = ["Aria Beingessner <a.beingessner@gmail.com>"]
 edition = "2024"
 rust-version = "1.85"
