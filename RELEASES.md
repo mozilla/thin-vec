@@ -1,6 +1,8 @@
-# Unreleased
+# Version 0.2.20 (2026-09-16)
 
  * Make const_new the default, and bump MSRV to 1.85. `const_new` feature is still available but does nothing.
+ * Forbid ZSTs for gecko-ffi mode (#94).
+ * Avoid allocating for ZSTs (#92).
 
 # Version 0.2.19 (2026-07-26)
 
