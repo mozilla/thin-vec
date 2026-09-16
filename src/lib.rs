@@ -14,12 +14,11 @@
 //! * `ThinVec::new()` doesn't allocate (it points to a statically allocated singleton)
 //! * reallocation can be done in place
 //! * `size_of::<ThinVec<T>>()` == `size_of::<Option<ThinVec<T>>>()`
+//! * Does'nt allocate for Zero Sized Types (e.g. `ThinVec<()>`), but only without the "gecko-ffi" feature.
 //!
 //! Properties of `Vec` that aren't preserved:
 //! * `ThinVec<T>` can't ever be zero-cost roundtripped to a `Box<[T]>`, `String`, or `*mut T`
 //! * `from_raw_parts` doesn't exist
-//! * `ThinVec` currently doesn't bother to not-allocate for Zero Sized Types (e.g. `ThinVec<()>`),
-//!   but it could be done if someone cared enough to implement it.
 //!
 //!
 //! # Optional Features
@@ -575,10 +574,8 @@ impl<T> ThinVec<T> {
     /// If it is important to know the exact allocated capacity of a `ThinVec`,
     /// always use the [`capacity`] method after construction.
     ///
-    /// **NOTE**: unlike `Vec`, `ThinVec` **MUST** allocate once to keep track of non-zero
-    /// lengths. As such, we cannot provide the same guarantees about ThinVecs
-    /// of ZSTs not allocating. However the allocation never needs to be resized
-    /// to add more ZSTs, since the underlying array is still length 0.
+    /// **NOTE**: like `Vec`, `ThinVec` does'nt allocate for ZSTs and store the length inline,
+    /// but creating a `ThinVec` of ZSTs is not allowed if the "gecko-ffi" feature is enabled.
     ///
     /// [Capacity and reallocation]: #capacity-and-reallocation
     /// [`capacity`]: Vec::capacity
@@ -611,8 +608,7 @@ impl<T> ThinVec<T> {
     /// assert!(vec.capacity() >= 11);
     ///
     /// # #[cfg(not(feature = "gecko-ffi"))] {
-    /// // A vector of a zero-sized type will always over-allocate, since no
-    /// // space is needed to store the actual elements.
+    /// // A vector of a zero-sized type will not allocate and report to have max capacity.
     /// // Note this is only true **without** the gecko-ffi feature!
     /// let vec_units = ThinVec::<()>::with_capacity(10);
     /// assert_eq!(vec_units.capacity(), usize::MAX - 1);
