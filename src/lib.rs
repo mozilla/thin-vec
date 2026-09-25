@@ -157,10 +157,10 @@ use core::convert::TryInto;
 use core::hash::*;
 use core::iter::FromIterator;
 use core::marker::PhantomData;
-use core::ops::Bound;
+use core::ops::{Bound, Index, IndexMut};
 use core::ops::{Deref, DerefMut, RangeBounds};
 use core::ptr::NonNull;
-use core::slice::Iter;
+use core::slice::{Iter, SliceIndex};
 use core::{fmt, mem, ops, ptr, slice};
 
 use impl_details::*;
@@ -2075,6 +2075,20 @@ impl<T> Deref for ThinVec<T> {
 impl<T> DerefMut for ThinVec<T> {
     fn deref_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
+    }
+}
+
+impl<T, I: SliceIndex<[T]>> Index<I> for ThinVec<T> {
+    type Output = <I as SliceIndex<[T]>>::Output;
+
+    fn index(&self, index: I) -> &Self::Output {
+        &self.deref()[index]
+    }
+}
+
+impl<T, I: SliceIndex<[T]>> IndexMut<I> for ThinVec<T> {
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        &mut self.deref_mut()[index]
     }
 }
 
@@ -4054,6 +4068,13 @@ mod std_tests {
     fn test_index() {
         let vec = thin_vec![1, 2, 3];
         assert!(vec[1] == 2);
+    }
+
+    #[test]
+    fn test_index_mut() {
+        let mut vec = thin_vec![1, 2, 3];
+        vec[1] = 22;
+        assert!(vec[1] == 22);
     }
 
     #[test]
