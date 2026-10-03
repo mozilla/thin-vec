@@ -2371,7 +2371,8 @@ impl<T> Default for ThinVec<T> {
 impl<T> FromIterator<T> for ThinVec<T> {
     #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> ThinVec<T> {
-        let mut vec = ThinVec::new();
+        let iter = iter.into_iter();
+        let mut vec = ThinVec::with_capacity(iter.size_hint().0);
         vec.extend(iter);
         vec
     }
@@ -3597,6 +3598,15 @@ mod tests {
             assert_eq!(v.len(), 0);
             assert_eq!(v.capacity(), 0);
             assert_eq!(&v[..], &[]);
+        }
+    }
+
+    #[test]
+    fn test_collect_capacity() {
+        for i in 0..20 {
+            let v = (0..i).into_iter().collect::<ThinVec<usize>>();
+            assert_eq!(v.len(), i);
+            assert_eq!(v.capacity(), i);
         }
     }
 
