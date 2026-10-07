@@ -1,3 +1,9 @@
+# Version 0.2.21 (2026-10-08)
+
+ * When collecting into a ThinVec, pass the size hint to `with_capacity` (#99).
+ * Implement Index/IndexMut (#98).
+ * Update ZST docs.
+
 # Version 0.2.20 (2026-09-16)
 
  * Make const_new the default, and bump MSRV to 1.85. `const_new` feature is still available but does nothing.
