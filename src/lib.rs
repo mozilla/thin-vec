@@ -944,7 +944,7 @@ impl<T> ThinVec<T> {
         debug_assert!(old_len < self.capacity());
         unsafe {
             ptr::write(self.data_raw().add(old_len), val);
-            // SAFETY: capacity > len >= 0, so capacity != 0, so this is not a singleton.
+            // SAFETY: capacity > old_len >= 0, so capacity != 0, so this is not a singleton.
             self.set_len_non_singleton(old_len + 1);
         }
     }
@@ -968,6 +968,7 @@ impl<T> ThinVec<T> {
         }
 
         unsafe {
+            // SAFETY: capacity >= old_len > 0, so capacity != 0, so this is not a singleton.
             self.set_len_non_singleton(old_len - 1);
             Some(ptr::read(self.data_raw().add(old_len - 1)))
         }
@@ -1002,7 +1003,8 @@ impl<T> ThinVec<T> {
             let ptr = self.data_raw();
             ptr::copy(ptr.add(idx), ptr.add(idx + 1), old_len - idx);
             ptr::write(ptr.add(idx), elem);
-            self.set_header_len(old_len + 1);
+            // SAFETY: capacity > old_len >= 0, so capacity != 0, so this is not a singleton.
+            self.set_len_non_singleton(old_len + 1);
         }
     }
 
@@ -1035,6 +1037,7 @@ impl<T> ThinVec<T> {
         assert!(idx < old_len, "Index out of bounds");
 
         unsafe {
+            // SAFETY: capacity >= old_len > idx >= 0, so capacity != 0, so this is not a singleton.
             self.set_len_non_singleton(old_len - 1);
             let ptr = self.data_raw();
             let val = ptr::read(self.data_raw().add(idx));
@@ -1077,6 +1080,7 @@ impl<T> ThinVec<T> {
         unsafe {
             let ptr = self.data_raw();
             ptr::swap(ptr.add(idx), ptr.add(old_len - 1));
+            // SAFETY: capacity >= old_len > idx >= 0, so capacity != 0, so this is not a singleton.
             self.set_len_non_singleton(old_len - 1);
             ptr::read(ptr.add(old_len - 1))
         }
@@ -1137,6 +1141,7 @@ impl<T> ThinVec<T> {
                 // decrement len before the drop_in_place(), so a panic on Drop
                 // doesn't re-drop the just-failed value.
                 let new_len = self.len() - 1;
+                // SAFETY: capacity >= old_len > 0, so capacity != 0, so this is not a singleton.
                 self.set_len_non_singleton(new_len);
                 let ptr = self.data_raw().add(new_len);
                 ptr::drop_in_place(ptr);
@@ -3634,6 +3639,62 @@ mod tests {
 
         let v2 = v.clone();
         assert!(v2.is_singleton());
+    }
+
+    #[test]
+    fn test_insert_non_zst() {
+        {
+            let mut v = ThinVec::<i32>::new();
+            v.insert(0, 42);
+
+            assert_eq!(v.len(), 1);
+            assert!(v.capacity() >= 1);
+            assert_eq!(&v[..], &[42]);
+        }
+
+        {
+            let mut v = thin_vec![1, 2, 3];
+            v.insert(3, 42);
+            v.insert(0, 42);
+            v.insert(2, 42);
+
+            assert_eq!(v.len(), 6);
+            assert!(v.capacity() >= 6);
+            assert_eq!(&v[..], &[42, 1, 42, 2, 3, 42]);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(
+        feature = "gecko-ffi",
+        should_panic = "ThinVec<T> cannot bridge to nsTArray<T> when T is zero-sized"
+    )]
+    fn test_insert_zst() {
+        {
+            let mut v = ThinVec::<()>::new();
+            v.insert(0, ());
+
+            assert_eq!(v.len(), 1);
+            assert!(v.capacity() >= 1);
+            assert_eq!(&v[..], &[()]);
+
+            v.insert(0, ());
+
+            assert_eq!(v.len(), 2);
+            assert!(v.capacity() >= 2);
+            assert_eq!(&v[..], &[(), ()]);
+        }
+
+        {
+            let mut v = thin_vec![(), (), ()];
+            v.insert(3, ());
+            v.insert(0, ());
+            v.insert(2, ());
+
+            assert_eq!(v.len(), 6);
+            assert!(v.capacity() >= 6);
+            assert_eq!(&v[..], &[(), (), (), (), (), ()]);
+        }
     }
 }
 
