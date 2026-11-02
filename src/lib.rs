@@ -157,8 +157,8 @@ use core::convert::TryInto;
 use core::hash::*;
 use core::iter::FromIterator;
 use core::marker::PhantomData;
-use core::ops::{Bound, Index, IndexMut};
 use core::ops::{Deref, DerefMut, RangeBounds};
+use core::ops::{Index, IndexMut};
 use core::ptr::NonNull;
 use core::slice::{Iter, SliceIndex};
 use core::{fmt, mem, ops, ptr, slice};
@@ -280,6 +280,65 @@ mod impl_details {
 #[cold]
 fn capacity_overflow() -> ! {
     panic!("capacity overflow")
+}
+
+// Copy of https://github.com/rust-lang/rust/blob/ee361e8fca1c30e13e7a31cc82b64c045339d3a8/library/core/src/slice/index.rs#L37
+fn slice_index_fail(start: usize, end: usize, len: usize) -> ! {
+    if start > len {
+        panic!(
+            "range start index {} out of range for slice of length {}",
+            start, len
+        )
+    }
+
+    if end > len {
+        panic!(
+            "range end index {} out of range for slice of length {}",
+            end, len
+        )
+    }
+
+    if start > end {
+        panic!("slice index starts at {} but ends at {}", start, end)
+    }
+
+    // Only reachable if the range was a `RangeInclusive` or a
+    // `RangeToInclusive`, with `end == len`.
+    panic!(
+        "range end index {} out of range for slice of length {}",
+        end, len
+    )
+}
+
+// Backport of https://github.com/rust-lang/rust/blob/ee361e8fca1c30e13e7a31cc82b64c045339d3a8/library/core/src/slice/index.rs#L855
+fn slice_range<R>(range: R, bounds: ops::RangeTo<usize>) -> ops::Range<usize>
+where
+    R: ops::RangeBounds<usize>,
+{
+    let len = bounds.end;
+
+    let end = match range.end_bound() {
+        ops::Bound::Included(&end) if end >= len => slice_index_fail(0, end, len),
+        // Cannot overflow because `end < len` implies `end < usize::MAX`.
+        ops::Bound::Included(&end) => end + 1,
+
+        ops::Bound::Excluded(&end) if end > len => slice_index_fail(0, end, len),
+        ops::Bound::Excluded(&end) => end,
+        ops::Bound::Unbounded => len,
+    };
+
+    let start = match range.start_bound() {
+        ops::Bound::Excluded(&start) if start >= end => slice_index_fail(start, end, len),
+        // Cannot overflow because `start < end` implies `start < usize::MAX`.
+        ops::Bound::Excluded(&start) => start + 1,
+
+        ops::Bound::Included(&start) if start > end => slice_index_fail(start, end, len),
+        ops::Bound::Included(&start) => start,
+
+        ops::Bound::Unbounded => 0,
+    };
+
+    ops::Range { start, end }
 }
 
 trait UnwrapCapOverflow<T> {
@@ -1614,18 +1673,7 @@ impl<T> ThinVec<T> {
     {
         // See comments in the Drain struct itself for details on this
         let len = self.len();
-        let start = match range.start_bound() {
-            Bound::Included(&n) => n,
-            Bound::Excluded(&n) => n + 1,
-            Bound::Unbounded => 0,
-        };
-        let end = match range.end_bound() {
-            Bound::Included(&n) => n + 1,
-            Bound::Excluded(&n) => n,
-            Bound::Unbounded => len,
-        };
-        assert!(start <= end);
-        assert!(end <= len);
+        let ops::Range { start, end } = slice_range(range, ..len);
 
         unsafe {
             // Set our length to the start bound
@@ -1747,65 +1795,6 @@ impl<T> ThinVec<T> {
     where
         F: FnMut(&mut T) -> bool,
     {
-        // Copy of https://github.com/rust-lang/rust/blob/ee361e8fca1c30e13e7a31cc82b64c045339d3a8/library/core/src/slice/index.rs#L37
-        fn slice_index_fail(start: usize, end: usize, len: usize) -> ! {
-            if start > len {
-                panic!(
-                    "range start index {} out of range for slice of length {}",
-                    start, len
-                )
-            }
-
-            if end > len {
-                panic!(
-                    "range end index {} out of range for slice of length {}",
-                    end, len
-                )
-            }
-
-            if start > end {
-                panic!("slice index starts at {} but ends at {}", start, end)
-            }
-
-            // Only reachable if the range was a `RangeInclusive` or a
-            // `RangeToInclusive`, with `end == len`.
-            panic!(
-                "range end index {} out of range for slice of length {}",
-                end, len
-            )
-        }
-
-        // Backport of https://github.com/rust-lang/rust/blob/ee361e8fca1c30e13e7a31cc82b64c045339d3a8/library/core/src/slice/index.rs#L855
-        pub fn slice_range<R>(range: R, bounds: ops::RangeTo<usize>) -> ops::Range<usize>
-        where
-            R: ops::RangeBounds<usize>,
-        {
-            let len = bounds.end;
-
-            let end = match range.end_bound() {
-                ops::Bound::Included(&end) if end >= len => slice_index_fail(0, end, len),
-                // Cannot overflow because `end < len` implies `end < usize::MAX`.
-                ops::Bound::Included(&end) => end + 1,
-
-                ops::Bound::Excluded(&end) if end > len => slice_index_fail(0, end, len),
-                ops::Bound::Excluded(&end) => end,
-                ops::Bound::Unbounded => len,
-            };
-
-            let start = match range.start_bound() {
-                ops::Bound::Excluded(&start) if start >= end => slice_index_fail(start, end, len),
-                // Cannot overflow because `start < end` implies `start < usize::MAX`.
-                ops::Bound::Excluded(&start) => start + 1,
-
-                ops::Bound::Included(&start) if start > end => slice_index_fail(start, end, len),
-                ops::Bound::Included(&start) => start,
-
-                ops::Bound::Unbounded => 0,
-            };
-
-            ops::Range { start, end }
-        }
-
         let old_len = self.len();
         let ops::Range { start, end } = slice_range(range, ..old_len);
 
@@ -4276,6 +4265,21 @@ mod std_tests {
     fn test_drain_inclusive_out_of_bounds() {
         let mut v = thin_vec![1, 2, 3, 4, 5];
         v.drain(5..=5);
+    }
+
+    #[test]
+    #[should_panic(expected = "out of range for slice of length 3")]
+    fn test_drain_excluded_usize_max_start() {
+        use core::ops::Bound;
+        let mut v = thin_vec![1, 2, 3];
+        v.drain((Bound::Excluded(usize::MAX), Bound::Unbounded));
+    }
+
+    #[test]
+    #[should_panic(expected = "out of range for slice of length 3")]
+    fn test_drain_inclusive_usize_max_end() {
+        let mut v = thin_vec![1, 2, 3];
+        v.drain(..=usize::MAX);
     }
 
     #[test]
